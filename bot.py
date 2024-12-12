@@ -2,7 +2,9 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_API_BASE
-from handlers.command_handlers import start, tasks, unknown_command
+from handlers.command_handlers import (
+    start, tasks, unknown_command, rclone, unrclone
+)
 from handlers.message_handlers import handle_download
 from handlers.callback_handlers import button_callback
 from telegram.ext import ContextTypes
@@ -30,6 +32,8 @@ def main() -> None:
     # 添加处理器
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("tasks", tasks))
+    application.add_handler(CommandHandler("rclone", rclone))
+    application.add_handler(CommandHandler("unrclone", unrclone))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_download))
     application.add_handler(CallbackQueryHandler(button_callback))
     # 添加未知命令处理器（必须放在所有命令处理器之后）
