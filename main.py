@@ -14,7 +14,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from src.config import get_config, ConfigError
 from src.aria2_client import get_aria2_client, Aria2ConnectionError
 from src.history import get_history_manager, HistoryError
-from src.bot import TelegramBot, NotificationService
+# 更新导入以反映重构
+from src.bot_app import BotApplicationRunner
+from src.notification_service import NotificationService
+from src.state.page_state import get_page_state_manager
 
 # 配置日志记录器
 logger = logging.getLogger() # 获取根 logger
@@ -94,6 +97,8 @@ async def main():
 
     scheduler = None
     history_manager = None
+    page_state_manager = None # 添加页面状态管理器
+    bot_runner = None # 重命名 bot 实例
     bot_task = None
 
     try:
@@ -125,15 +130,21 @@ async def main():
             logger.error(f"初始化历史记录管理器时出错: {e}", exc_info=True)
             sys.exit(1)
 
-        # 初始化 Telegram Bot
-        logger.info("正在初始化 Telegram Bot...")
+        # 初始化分页状态管理器
+        logger.info("正在初始化分页状态管理器...")
+        page_state_manager = get_page_state_manager() # 获取实例
+        logger.info("分页状态管理器初始化完成")
+
+
+        # 初始化 BotApplicationRunner
+        logger.info("正在初始化 Bot 应用运行器...")
         try:
-            # Pass dependencies to TelegramBot constructor
-            bot = TelegramBot(aria2_client, history_manager)
-            await bot.setup() # 设置 handlers 等
-            logger.info("Telegram Bot 初始化完成")
+            # 注入所有依赖项
+            bot_runner = BotApplicationRunner(config, aria2_client, history_manager, page_state_manager)
+            await bot_runner.setup() # 设置 handlers, bot_data 等
+            logger.info("Bot 应用运行器初始化完成")
         except Exception as e:
-            logger.error(f"初始化 Telegram Bot 失败: {e}", exc_info=True)
+            logger.error(f"初始化 Bot 应用运行器失败: {e}", exc_info=True)
             sys.exit(1)
 
         # 初始化并启动调度器（如果启用了通知）
@@ -141,8 +152,8 @@ async def main():
             logger.info("正在初始化通知服务和调度器...")
             try:
                 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai") # 可根据需要配置时区
-                # Pass history_manager dependency to NotificationService constructor
-                notification_service = NotificationService(bot.application, history_manager)
+                # 将 Application 实例和 history_manager 注入 NotificationService
+                notification_service = NotificationService(bot_runner.application, history_manager)
                 interval = config.notification_interval
                 scheduler.add_job(
                     notification_service.check_and_notify,
@@ -161,8 +172,9 @@ async def main():
             logger.info("下载通知功能已禁用")
 
         # 启动 Bot (作为后台任务)
-        logger.info("正在启动 Telegram Bot...")
-        bot_task = asyncio.create_task(bot.run())
+        logger.info("正在启动 Bot 应用运行器...")
+        # bot_runner.run() 内部处理了循环和关闭逻辑
+        bot_task = asyncio.create_task(bot_runner.run())
 
         # 等待 Bot 任务完成或被中断
         await bot_task

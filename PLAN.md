@@ -1,117 +1,147 @@
-# Aria2 Telegram Bot - 开发计划
+# 重构计划：拆分 `src/bot.py`
 
-## 1. 项目目标
+**目标:** 将 `src/bot.py` 拆分成更小、更专注的模块，以提高代码的可读性、可维护性和可测试性。
 
-开发一个功能全面的异步 Telegram 机器人，使用 `python-telegram-bot` (v22+) 和 `aria2p`，通过 Aria2 JSON-RPC 接口管理下载任务，并提供配置管理、访问控制、任务历史记录（SQLite）、分页显示和下载完成/失败通知功能。
+**1. 分析与拆分原则:**
 
-## 2. 技术选型
+*   **单一职责原则:** 每个新的模块/文件应该只关注一块特定的功能。
+*   **高内聚低耦合:** 相关的功能应该放在一起，模块之间的依赖关系应尽可能减少。
+*   **可测试性:** 拆分后的模块应该更容易进行单元测试。
 
-*   **核心库:** `python-telegram-bot[ext]` (v22+)
-*   **Aria2 交互:** `aria2p`
-*   **配置:** `PyYAML` 用于解析 `config.yaml`
-*   **历史记录:** `sqlite3` (标准库)
-*   **异步任务调度 (通知):** `apscheduler`
-*   **日志:** `logging` (标准库)
+**2. 建议的新文件/目录结构 (在 `src/` 目录下):**
 
-## 3. 项目结构 (建议)
+```
+src/
+├── __init__.py
+├── aria2_client.py
+├── config.py
+├── history.py
+├── utils.py
+├── auth.py              # 新增：处理授权逻辑
+├── bot_app.py           # 新增：Bot 应用核心设置与运行
+├── notification_service.py # 新增：通知服务类
+├── handlers/            # 新增：存放各类处理器
+│   ├── __init__.py
+│   ├── command_handlers.py  # 新增：处理 Telegram 命令
+│   ├── callback_handlers.py # 新增：处理回调查询
+│   └── conversation_handlers.py # 新增：处理会话 (如 clearhistory)
+└── state/               # 新增: 管理临时状态
+    ├── __init__.py
+    └── page_state.py      # 新增: 管理分页状态
+```
+
+**3. 模块职责定义:**
+
+*   **`src/bot_app.py`:**
+    *   **核心职责:** 初始化 `telegram.ext.Application` 实例，设置基础配置（如 API 端点），注册来自 `handlers` 目录中的所有处理器（命令、回调、会话），启动和停止 Bot 应用。
+    *   **持有依赖:** 持有 `Aria2Client` 和 `HistoryManager` 的实例，并将它们传递给需要的处理器（通过 `context.bot_data` 或其他依赖注入机制）。
+    *   **可能包含:** `TelegramBot` 类（可能重命名为 `BotApplicationRunner` 或类似），包含 `setup` 和 `run` 方法。
+*   **`src/auth.py`:**
+    *   **核心职责:** 包含 `check_authorized` 函数，用于验证用户权限。
+*   **`src/notification_service.py`:**
+    *   **核心职责:** 包含 `NotificationService` 类，负责检查下载任务状态并向指定用户发送通知。
+    *   **依赖:** `telegram.ext.Application` (用于发送消息), `HistoryManager` (获取未通知任务), `Config`。
+*   **`src/handlers/command_handlers.py`:**
+    *   **核心职责:** 包含所有处理 Telegram 命令（如 `/add`, `/status`, `/help` 等）的函数 (`cmd_*`)。
+    *   **注册方式:** 这些函数需要被注册到 `Application` 中（在 `bot_app.py` 中完成）。可以考虑使用某种注册机制或直接在 `bot_app.py` 中导入并添加。
+    *   **依赖:** `Update`, `ContextTypes`, `Aria2Client`, `HistoryManager`, `utils`, `auth`。
+*   **`src/handlers/callback_handlers.py`:**
+    *   **核心职责:** 包含处理内联键盘回调查询的函数，如任务操作（暂停、恢复、删除）和分页（历史记录、搜索结果、状态列表）。包含 `handle_callback` 和 `_handle_*_callback` 逻辑。
+    *   **注册方式:** 注册为 `CallbackQueryHandler` 到 `Application` (在 `bot_app.py` 中完成)。
+    *   **依赖:** `Update`, `ContextTypes`, `Aria2Client`, `HistoryManager`, `utils`, `auth`, `state.page_state`。
+*   **`src/handlers/conversation_handlers.py`:**
+    *   **核心职责:** 包含 `ConversationHandler` 的定义，例如当前的 `clearhistory` 流程，包括入口点、状态和 fallbacks。
+    *   **注册方式:** 注册 `ConversationHandler` 到 `Application` (在 `bot_app.py` 中完成)。
+    *   **依赖:** `Update`, `ContextTypes`, `HistoryManager`, `auth`。
+*   **`src/state/page_state.py`:**
+    *   **核心职责:** 封装和管理分页相关的状态（当前页、总页数、关联数据如搜索关键词或完整任务列表）。替代原 `TelegramBot` 类中的 `self.states` 字典。
+
+**4. 交互与关联:**
+
+*   `main.py` 将会初始化 `Config`, `Aria2Client`, `HistoryManager`。然后创建 `BotApplicationRunner` (来自 `bot_app.py`) 的实例，并将 `Aria2Client` 和 `HistoryManager` 注入。`main.py` 还会负责启动 `BotApplicationRunner` 和 `NotificationService` (如果启用)。
+*   `bot_app.py` 会从 `handlers` 目录导入并注册所有处理器。它会将 `Aria2Client` 和 `HistoryManager` 实例放入 `context.bot_data`，供所有处理器访问。
+*   `handlers/*.py` 中的处理器函数会从 `context.bot_data` 获取 `Aria2Client` 和 `HistoryManager` 实例，并调用 `utils.py`, `auth.py` 中的辅助函数。
+*   `NotificationService` 会被 `main.py` 定期调用其 `check_and_notify` 方法。
+
+**5. Mermaid 图示 (简化结构):**
 
 ```mermaid
 graph TD
-    subgraph "Root Directory (aria2-bot)"
-        A[main.py] -- Runs --> B;
-        C[config.yaml] -- Loaded by --> D;
-        E[requirements.txt];
-        F[README.md];
-        G[bot_data/] -- Contains --> H(history.db);
-        I[src/] -- Contains --> J & K & L & M & N;
+    subgraph main.py
+        direction LR
+        M_Init[初始化 Config, Aria2Client, HistoryManager] --> M_CreateBot[创建 BotApplicationRunner]
+        M_CreateBot --> M_InjectDeps[注入 Aria2Client, HistoryManager]
+        M_InjectDeps --> M_RunBot[运行 BotApplicationRunner.run()]
+        M_Init --> M_CreateNotify[创建 NotificationService]
+        M_CreateNotify --> M_RunNotify[定期调用 check_and_notify()]
     end
 
-    subgraph "src/ (Source Code)"
-        J(config.py) -- Manages --> C;
-        K(aria2_client.py) -- Interacts with Aria2 --> O(Aria2 RPC);
-        L(history.py) -- Manages --> H;
-        M(bot.py) -- Core Bot Logic --> J & K & L & N;
-        N(utils.py) -- Helpers (Formatting, Pagination, etc.);
+    subgraph src/bot_app.py [BotApplicationRunner]
+        direction LR
+        B_InitApp[初始化 Application] --> B_RegisterHandlers[注册 Handlers]
+        B_RegisterHandlers --> B_SetBotData[设置 context.bot_data (Aria2, History)]
+        B_SetBotData --> B_Run[提供 run() 方法]
     end
 
-    B(Telegram Bot Application) -- Uses --> M;
+    subgraph src/handlers
+        direction TB
+        H_Commands[command_handlers.py] --> H_Deps1[依赖: Aria2, History, Utils, Auth]
+        H_Callbacks[callback_handlers.py] --> H_Deps2[依赖: Aria2, History, Utils, Auth, State]
+        H_Conversations[conversation_handlers.py] --> H_Deps3[依赖: History, Auth]
+    end
 
-    style H fill:#f9f,stroke:#333,stroke-width:2px
-    style C fill:#ccf,stroke:#333,stroke-width:2px
+    subgraph src/notification_service.py
+        direction LR
+        N_Service[NotificationService] --> N_Deps[依赖: Application, History, Config]
+    end
+
+    subgraph src/auth.py
+        A_Auth[check_authorized()]
+    end
+
+    subgraph src/utils.py
+        U_Utils[辅助函数]
+    end
+
+    subgraph src/aria2_client.py
+        AC_Client[Aria2Client]
+    end
+
+    subgraph src/history.py
+        HM_Manager[HistoryManager]
+    end
+
+    subgraph src/state/page_state.py
+        S_State[分页状态管理]
+    end
+
+    M_CreateBot --> B_InitApp
+    B_RegisterHandlers --> H_Commands
+    B_RegisterHandlers --> H_Callbacks
+    B_RegisterHandlers --> H_Conversations
+    H_Commands --> A_Auth
+    H_Callbacks --> A_Auth
+    H_Conversations --> A_Auth
+    H_Commands --> U_Utils
+    H_Callbacks --> U_Utils
+    H_Commands --> AC_Client
+    H_Callbacks --> AC_Client
+    H_Commands --> HM_Manager
+    H_Callbacks --> HM_Manager
+    H_Conversations --> HM_Manager
+    M_CreateNotify --> N_Service
+    N_Service --> HM_Manager
+    H_Callbacks --> S_State
+
+    classDef default fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef subgraphStyle fill:#eee,stroke:#aaa,stroke-width:1px,rx:5,ry:5;
+    class main.py,src/bot_app.py,src/handlers,src/notification_service.py,src/auth.py,src/utils.py,src/aria2_client.py,src/history.py,src/state/page_state.py subgraphStyle;
+
 ```
 
-*   `main.py`: 程序入口，初始化配置、日志、Aria2 客户端、历史数据库、调度器，并启动 Telegram Bot Application。
-*   `config.yaml`: 存储所有配置信息（Bot Token, Aria2 连接参数, 授权 ID 列表, 数据库路径, 通知设置等）。
-*   `requirements.txt`: 列出所有 Python 依赖。
-*   `README.md`: 项目说明、安装、配置和使用指南。
-*   `bot_data/`: 存放持久化数据，如 SQLite 数据库。
-*   `src/config.py`: 加载、验证和提供对 `config.yaml` 配置的访问。
-*   `src/aria2_client.py`: 封装 `aria2p` 的异步调用，处理 Aria2 连接和 RPC 交互，定义相关异常。
-*   `src/history.py`: 使用 `sqlite3` 管理 `history.db`，提供添加、查询（带分页）、清理历史记录的异步接口，以及数据库初始化和表结构定义。
-*   `src/bot.py`: 包含 Telegram Bot 的核心逻辑：
-    *   命令处理器 (`CommandHandler`) 实现 `/add`, `/status`, `/pause`, `/unpause`, `/remove`, `/pauseall`, `/unpauseall`, `/history`, `/clearhistory`, `/help`, `/globalstatus`。
-    *   回调查询处理器 (`CallbackQueryHandler`) 处理内联键盘按钮（任务操作、分页）。
-    *   访问控制逻辑（检查用户/群组 ID）。
-    *   错误处理器 (`ErrorHandler`)。
-    *   集成 `apscheduler` 实现下载完成/失败通知的调度任务。
-*   `src/utils.py`: 包含辅助函数，如消息格式化（MarkdownV2/HTML）、分页逻辑实现、GID 验证等。
+**6. 优势:**
 
-## 4. 开发阶段与任务分解
-
-*   **阶段 1: 基础设置与配置**
-    *   [ ] 创建项目目录结构。
-    *   [ ] 初始化 Git 仓库 (可选)。
-    *   [ ] 编写 `requirements.txt` 并安装依赖。
-    *   [ ] 设计 `config.yaml` 结构，包含所有必要字段。
-    *   [ ] 实现 `src/config.py`，加载并验证配置。
-    *   [ ] 设置基础日志记录 (`logging` in `main.py`)。
-
-*   **阶段 2: Aria2 客户端封装**
-    *   [ ] 在 `src/aria2_client.py` 中初始化 `aria2p.API`。
-    *   [ ] 封装常用的 Aria2 RPC 调用为异步函数（如 `add_download`, `get_task_status`, `get_active_tasks`, `pause_task`, `remove_task`, etc.）。
-    *   [ ] 定义并处理 Aria2 连接和调用相关的异常。
-
-*   **阶段 3: 历史记录管理 (SQLite)**
-    *   [ ] 在 `src/history.py` 中定义 SQLite 数据库表结构 (`tasks`: gid, filename, status, timestamp, size, error_msg)。
-    *   [ ] 实现数据库初始化函数。
-    *   [ ] 实现添加历史记录的异步函数。
-    *   [ ] 实现查询历史记录的异步函数（支持分页，每页 5 条）。
-    *   [ ] 实现清理历史记录的异步函数。
-    *   [ ] 实现自动修剪旧记录的逻辑（例如，只保留最新的 100 条）。
-
-*   **阶段 4: Telegram Bot 核心与命令实现**
-    *   [ ] 在 `src/bot.py` 中初始化 `telegram.ext.Application`。
-    *   [ ] 实现访问控制检查逻辑。
-    *   [ ] 实现 `/start` 和 `/help` 命令处理器。
-    *   [ ] 实现 `/add` 命令处理器，调用 `aria2_client`。
-    *   [ ] 实现 `/status` (带 GID) 命令处理器，调用 `aria2_client`，格式化输出，添加内联键盘。
-    *   [ ] 实现 `/pause`, `/unpause`, `/remove` 命令处理器，调用 `aria2_client`。
-    *   [ ] 实现 `/pauseall`, `/unpauseall` 命令处理器，调用 `aria2_client`。
-    *   [ ] 实现 `/globalstatus` 命令处理器，调用 `aria2_client`。
-    *   [ ] 实现 `/history` 命令处理器，调用 `history` 模块，实现分页逻辑（可能需要 `ConversationHandler` 或状态管理），添加分页按钮。
-    *   [ ] 实现 `/clearhistory` 命令处理器，添加确认步骤，调用 `history` 模块。
-    *   [ ] 实现 `CallbackQueryHandler` 处理内联按钮点击（任务操作、分页）。
-    *   [ ] 实现基础的 `ErrorHandler`。
-
-*   **阶段 5: 下载通知功能**
-    *   [ ] 在 `src/bot.py` 或 `main.py` 中初始化 `apscheduler.AsyncIOScheduler`。
-    *   [ ] 设计一个检查下载状态的异步任务函数。
-    *   [ ] 该任务函数调用 `aria2_client.tellStopped` 获取最近停止的任务。
-    *   [ ] 对比 `history.db`，识别新完成或出错的任务。
-    *   [ ] 对于新任务，调用 `aria2_client.tellStatus` 获取详情，添加到 `history.db`。
-    *   [ ] 向配置中指定的用户发送格式化的通知消息。
-    *   [ ] 添加逻辑防止重复通知（例如，在 history 表中增加 `notified` 字段）。
-    *   [ ] 在 `main.py` 中调度此任务定期执行（例如，每 30-60 秒）。
-
-*   **阶段 6: 完善与测试**
-    *   [ ] 完善错误处理，覆盖更多边界情况。
-    *   [ ] 优化日志记录，添加更多有用的信息。
-    *   [ ] 编写 `README.md`。
-    *   [ ] 进行全面的功能测试和集成测试。
-    *   [ ] 代码审查和重构 (可选)。
-
-## 5. 下一步行动
-
-*   **确认计划:** (已完成)
-*   **保存计划:** (已完成)
-*   **开始实施:** 确认计划保存后，切换到 "Code" 模式开始实施。
+*   **提高可读性:** 每个文件专注于特定功能，更容易理解代码意图。
+*   **提高可维护性:** 修改特定功能时，只需关注相关文件，减少对其他部分的影响。
+*   **提高可测试性:** 可以更容易地对单个处理器函数或服务类进行单元测试。
+*   **更好的组织:** 文件结构更清晰，便于新开发者快速上手。
