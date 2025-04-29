@@ -18,6 +18,7 @@ from src.history import get_history_manager, HistoryError
 from src.bot_app import BotApplicationRunner
 from src.notification_service import NotificationService
 from src.state.page_state import get_page_state_manager
+from src.task_monitor import get_task_monitor, TaskMonitor # 新增导入
 
 # 配置日志记录器
 logger = logging.getLogger() # 获取根 logger
@@ -100,6 +101,7 @@ async def main():
     page_state_manager = None # 添加页面状态管理器
     bot_runner = None # 重命名 bot 实例
     bot_task = None
+    task_monitor = None # 新增 TaskMonitor 实例变量
 
     try:
         # 初始化 Aria2 客户端并检查连接
@@ -171,6 +173,19 @@ async def main():
         else:
             logger.info("下载通知功能已禁用")
 
+        # 初始化并启动 TaskMonitor (在 Bot Runner 设置之后)
+        logger.info("正在初始化任务监控器...")
+        try:
+            # 使用配置的更新间隔，或默认 5 秒
+            monitor_interval = config.get('monitor', 'interval', 5)
+            task_monitor = get_task_monitor(application=bot_runner.application, update_interval=monitor_interval)
+            await task_monitor.start()
+            logger.info("任务监控器已启动")
+        except Exception as e:
+            logger.error(f"启动任务监控器失败: {e}", exc_info=True)
+            # 即使监控器失败，也允许 Bot 继续运行
+            task_monitor = None
+
         # 启动 Bot (作为后台任务)
         logger.info("正在启动 Bot 应用运行器...")
         # bot_runner.run() 内部处理了循环和关闭逻辑
@@ -185,6 +200,15 @@ async def main():
         logger.critical(f"主程序发生未捕获的严重错误: {e}", exc_info=True)
     finally:
         logger.info("开始关闭程序...")
+
+        # 停止 TaskMonitor
+        if task_monitor and task_monitor._running: # 检查是否正在运行
+            logger.info("正在关闭任务监控器...")
+            try:
+                await task_monitor.stop()
+                logger.info("任务监控器已关闭")
+            except Exception as e:
+                logger.error(f"关闭任务监控器时出错: {e}", exc_info=True)
 
         # 停止调度器
         if scheduler and scheduler.running:

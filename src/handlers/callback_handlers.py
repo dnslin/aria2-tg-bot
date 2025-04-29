@@ -12,6 +12,7 @@ from .. import auth
 from ..aria2_client import Aria2Error, Aria2TaskNotFoundError
 from ..history import DatabaseError, HistoryManager # Added HistoryManager import
 from ..config import Config # Added Config import
+from ..task_monitor import get_task_monitor # 新增导入
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -165,6 +166,15 @@ async def _handle_remove_callback(query, gid, context: ContextTypes.DEFAULT_TYPE
                 parse_mode=ParseMode.HTML
             )
             await query.answer("✅ 任务已删除") # 在编辑消息后响应
+
+            # 任务已删除，取消监控
+            try:
+                task_monitor = get_task_monitor()
+                if task_monitor and query.message: # 确保 query.message 存在
+                    task_monitor.unregister_task(query.message.chat_id, query.message.message_id)
+            except Exception as monitor_err:
+                logger.error(f"Failed to unregister task {gid} from TaskMonitor after removal: {monitor_err}", exc_info=True)
+
         else:
              # 如果 remove 返回 false，但之前获取信息时任务不存在，则认为已删除
             if task_info is None:
@@ -174,12 +184,26 @@ async def _handle_remove_callback(query, gid, context: ContextTypes.DEFAULT_TYPE
                     parse_mode=ParseMode.HTML
                 )
                 await query.answer("ℹ️ 任务已被删除或不存在")
+                # 任务不存在，也尝试取消监控（以防万一）
+                try:
+                    task_monitor = get_task_monitor()
+                    if task_monitor and query.message:
+                        task_monitor.unregister_task(query.message.chat_id, query.message.message_id)
+                except Exception as monitor_err:
+                    logger.error(f"Failed to unregister non-existent task {gid} from TaskMonitor: {monitor_err}", exc_info=True)
             else:
                 await query.answer("❌ 删除任务失败", show_alert=True)
 
     except Aria2TaskNotFoundError: # 这个异常理论上不应该在这里触发
         await query.answer("❓ 任务不存在或已完成", show_alert=True)
         await query.edit_message_text(f"❌ 任务 <code>{gid}</code> 不存在或已完成。", parse_mode=ParseMode.HTML)
+        # 任务不存在，也尝试取消监控
+        try:
+            task_monitor = get_task_monitor()
+            if task_monitor and query.message:
+                task_monitor.unregister_task(query.message.chat_id, query.message.message_id)
+        except Exception as monitor_err:
+            logger.error(f"Failed to unregister non-existent task {gid} from TaskMonitor: {monitor_err}", exc_info=True)
     except Aria2Error as e:
         await query.answer(f"❌ 删除失败: {str(e)[:200]}", show_alert=True)
     except Exception as e:

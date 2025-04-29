@@ -12,6 +12,7 @@ from .. import utils
 from .. import auth
 from ..aria2_client import Aria2Error, Aria2TaskNotFoundError
 from ..history import DatabaseError
+from ..task_monitor import get_task_monitor # 新增导入
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -102,16 +103,31 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await asyncio.sleep(1)
         task_info = await aria2_client.get_download(gid)
 
-        # 格式化回复消息
-        success_text = (
-            f"👍 <b>下载任务已添加!</b>\n\n"
-            f"<b>GID:</b> <code>{gid}</code>\n"
-            f"<b>文件名:</b> {utils.escape_html(task_info.get('name', '⏳ 获取中...'))}\n"
-            f"<b>状态:</b> {task_info.get('status', '未知')}"
+        # 格式化回复消息 (使用详细格式)
+        task_text = utils.format_task_info_html(task_info)
+        reply_markup = utils.create_task_control_keyboard(gid)
+        initial_message_text = f"📝 <b>任务详情 (GID: {gid})</b>\n\n{task_text}"
+
+        # 更新之前的消息，包含按钮
+        await message.edit_text(
+            initial_message_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
         )
 
-        # 更新之前的消息
-        await message.edit_text(success_text, parse_mode=ParseMode.HTML)
+        # 注册任务到监控器
+        try:
+            task_monitor = get_task_monitor() # 获取单例
+            if task_monitor:
+                task_monitor.register_task(
+                    chat_id=update.effective_chat.id,
+                    message_id=message.message_id,
+                    gid=gid
+                )
+            else:
+                logger.warning("TaskMonitor instance not available, cannot register task for live updates.")
+        except Exception as monitor_err:
+            logger.error(f"Failed to register task {gid} with TaskMonitor: {monitor_err}", exc_info=True)
 
     except Aria2Error as e:
         error_text = f"❌ <b>添加下载任务失败:</b> {utils.escape_html(str(e))}"
