@@ -201,7 +201,7 @@ class Config:
     @property
     def logging_config(self) -> Dict[str, Any]:
         """获取日志配置"""
-        return self.get('logging', {})
+        return self.get('logging', default={})
 
 
 # 全局单例配置对象

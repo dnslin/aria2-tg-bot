@@ -70,7 +70,7 @@ class Aria2Client:
         try:
             # 使用同步方法进行简单测试（getVersion），但在异步环境中执行
             loop = asyncio.get_running_loop()
-            version = await loop.run_in_executor(None, self.api.get_version)
+            version = await loop.run_in_executor(None, self.api.client.get_version)
             logger.debug(f"Aria2 连接成功，版本: {version}")
             return True
         except Exception as e:
@@ -468,7 +468,7 @@ class Aria2Client:
                 'num_stopped': int(stats.num_stopped),        # 已停止下载数（包括完成和错误的）
                 'total_size': int(stats.total_size),          # 当前活动下载的总大小（字节）
                 'server_time': int(stats.server_time),        # 服务器时间戳
-                'version': await loop.run_in_executor(None, lambda: self.api.get_version())
+                'version': await loop.run_in_executor(None, lambda: self.api.client.get_version())
             }
             
         except Exception as e:
