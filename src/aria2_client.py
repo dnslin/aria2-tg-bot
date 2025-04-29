@@ -152,8 +152,8 @@ class Aria2Client:
                 'is_complete': download.is_complete,
                 'is_paused': download.is_paused,
                 'is_removed': download.is_removed,
-                'is_waiting': download.is_waiting,
-                'created_time': download.created_time
+                'is_waiting': download.is_waiting
+                # 'created_time' 属性不存在
             }
             
             # 计算预计剩余时间（ETA）
@@ -191,8 +191,10 @@ class Aria2Client:
         
         try:
             loop = asyncio.get_running_loop()
-            downloads = await loop.run_in_executor(None, self.api.get_active_downloads)
-            
+            # 使用 client.tell_active 获取原始数据
+            active_structs = await loop.run_in_executor(None, self.api.client.tell_active)
+            downloads = [aria2p.Download(self.api, struct) for struct in active_structs]
+
             # 将 Download 对象转换为字典列表
             return [
                 {
@@ -228,8 +230,10 @@ class Aria2Client:
         
         try:
             loop = asyncio.get_running_loop()
-            downloads = await loop.run_in_executor(None, self.api.get_waiting_downloads)
-            
+            # 使用 client.tell_waiting 获取原始数据，假设获取前 1000 个
+            waiting_structs = await loop.run_in_executor(None, lambda: self.api.client.tell_waiting(0, 1000))
+            downloads = [aria2p.Download(self.api, struct) for struct in waiting_structs]
+
             return [
                 {
                     'gid': d.gid,
@@ -265,8 +269,10 @@ class Aria2Client:
         
         try:
             loop = asyncio.get_running_loop()
-            downloads = await loop.run_in_executor(None, lambda: self.api.get_stopped_downloads(limit=limit))
-            
+            # 使用 client.tell_stopped 获取原始数据
+            stopped_structs = await loop.run_in_executor(None, lambda: self.api.client.tell_stopped(0, limit))
+            downloads = [aria2p.Download(self.api, struct) for struct in stopped_structs]
+
             return [
                 {
                     'gid': d.gid,
@@ -306,10 +312,11 @@ class Aria2Client:
         
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: self.api.pause([gid]))
-            logger.info(f"暂停下载任务: {gid}")
-            return result
-            
+            # 直接使用 client.pause
+            paused_gid = await loop.run_in_executor(None, lambda: self.api.client.pause(gid))
+            logger.info(f"暂停下载任务: {paused_gid}")
+            return True # 假设成功，因为失败会抛出 ClientException
+
         except aria2p.client.ClientException as e:
             if "Download not found" in str(e):
                 logger.error(f"下载任务不存在: {gid}")
@@ -339,10 +346,11 @@ class Aria2Client:
         
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: self.api.resume([gid]))
-            logger.info(f"恢复下载任务: {gid}")
-            return result
-            
+            # 直接使用 client.unpause
+            unpaused_gid = await loop.run_in_executor(None, lambda: self.api.client.unpause(gid))
+            logger.info(f"恢复下载任务: {unpaused_gid}")
+            return True # 假设成功
+
         except aria2p.client.ClientException as e:
             if "Download not found" in str(e):
                 logger.error(f"下载任务不存在: {gid}")
@@ -372,10 +380,16 @@ class Aria2Client:
         
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: self.api.remove([gid]))
-            logger.info(f"删除下载任务: {gid}")
-            return result
-            
+            # 直接使用 client.remove
+            removed_gid = await loop.run_in_executor(None, lambda: self.api.client.remove(gid))
+            # 尝试移除下载结果，忽略可能的错误
+            try:
+                await loop.run_in_executor(None, lambda: self.api.client.remove_download_result(gid))
+            except aria2p.client.ClientException:
+                logger.debug(f"移除下载结果失败 (可能已移除): {gid}")
+            logger.info(f"删除下载任务: {removed_gid}")
+            return True # 假设成功
+
         except aria2p.client.ClientException as e:
             if "Download not found" in str(e):
                 logger.error(f"下载任务不存在: {gid}")
@@ -451,26 +465,26 @@ class Aria2Client:
             # 获取全局统计信息
             stats = await loop.run_in_executor(None, self.api.client.get_global_stat)
             
-            # 获取不同状态的下载任务数量
-            active_downloads = await loop.run_in_executor(None, lambda: len(self.api.get_active_downloads()))
-            waiting_downloads = await loop.run_in_executor(None, lambda: len(self.api.get_waiting_downloads()))
-            stopped_downloads = await loop.run_in_executor(None, lambda: len(self.api.get_stopped_downloads()))
-            
+            # 直接使用 stats 中的数据
+            active_downloads_count = int(stats.num_active)
+            waiting_downloads_count = int(stats.num_waiting)
+            stopped_downloads_count = int(stats.num_stopped)
+
             return {
                 'download_speed': int(stats.download_speed),  # bytes/sec
                 'upload_speed': int(stats.upload_speed),      # bytes/sec
-                'active_downloads': active_downloads,
-                'waiting_downloads': waiting_downloads,
-                'stopped_downloads': stopped_downloads,
-                'total_downloads': active_downloads + waiting_downloads + stopped_downloads,
-                'num_active': int(stats.num_active),          # 活动下载数
-                'num_waiting': int(stats.num_waiting),        # 等待下载数
-                'num_stopped': int(stats.num_stopped),        # 已停止下载数（包括完成和错误的）
-                'total_size': int(stats.total_size),          # 当前活动下载的总大小（字节）
-                'server_time': int(stats.server_time),        # 服务器时间戳
+                'active_downloads': active_downloads_count,
+                'waiting_downloads': waiting_downloads_count,
+                'stopped_downloads': stopped_downloads_count,
+                'total_downloads': active_downloads_count + waiting_downloads_count + stopped_downloads_count,
+                'num_active': active_downloads_count,          # 活动下载数
+                'num_waiting': waiting_downloads_count,        # 等待下载数
+                'num_stopped': stopped_downloads_count,        # 已停止下载数（包括完成和错误的）
+                # 'total_size' 属性不存在
+                # 'server_time' 属性不存在
                 'version': await loop.run_in_executor(None, lambda: self.api.client.get_version())
             }
-            
+
         except Exception as e:
             logger.error(f"获取全局状态失败: {e}")
             raise Aria2RequestError(f"获取全局状态失败: {e}")
