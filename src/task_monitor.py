@@ -173,6 +173,9 @@ class TaskMonitor:
                         self.unregister_task(chat_id, message_id)
                     else:
                         # --- 任务进行中，更新消息 ---
+# --- 添加日志记录传递给格式化函数的数据 ---
+                        logger.debug(f"GID: {gid}, Formatting task_info: {task_info}")
+                        # ---------------------------------------
                         new_text = utils.format_task_info_html(task_info)
                         full_message_text = f"📝 <b>任务详情 (GID: {gid})</b>\n\n{new_text}"
                         keyboard = utils.create_task_control_keyboard(gid)

@@ -132,6 +132,14 @@ class Aria2Client:
         try:
             loop = asyncio.get_running_loop()
             download = await loop.run_in_executor(None, lambda: self.api.get_download(gid))
+            # --- 添加日志记录原始进度信息 ---
+            logger.debug(
+                f"GID: {gid}, Raw Progress: {getattr(download, 'progress', 'N/A')}, "
+                f"Completed: {getattr(download, 'completed_length', 'N/A')}, "
+                f"Total: {getattr(download, 'total_length', 'N/A')}, "
+                f"Status: {getattr(download, 'status', 'N/A')}"
+            )
+            # ---------------------------------
             
             # 将 Download 对象转换为字典
             # 初始化 info 字典，不包含 files
