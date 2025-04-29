@@ -167,6 +167,11 @@ class TaskMonitor:
 
                     if is_finished:
                         logger.info(f"Task {gid} (chat={chat_id}, msg={message_id}) finished with status: {task_info['status']}. Unregistering.")
+                        # --- 解决方案：强制完成状态的进度为 100% ---
+                        if task_info.get('status') == 'complete':
+                            logger.debug(f"Forcing progress to 100% for completed task {gid}")
+                            task_info['progress'] = 100.0
+                        # -----------------------------------------
                         final_text = utils.format_task_info_html(task_info)
                         # 发送最终状态（无按钮）并取消注册
                         await self._update_message_final(chat_id, message_id, f"📝 <b>任务详情 (GID: {gid})</b>\n\n{final_text}", None)

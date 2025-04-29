@@ -165,7 +165,7 @@ async def _handle_remove_callback(query, gid, context: ContextTypes.DEFAULT_TYPE
                 f"文件名: {utils.escape_html(task_info.get('name', '未知') if task_info else '未知')}",
                 parse_mode=ParseMode.HTML
             )
-            await query.answer("✅ 任务已删除") # 在编辑消息后响应
+            # await query.answer("✅ 任务已删除") # 移除冗余调用
 
             # 任务已删除，取消监控
             try:
@@ -183,7 +183,7 @@ async def _handle_remove_callback(query, gid, context: ContextTypes.DEFAULT_TYPE
                     f"GID: <code>{gid}</code>",
                     parse_mode=ParseMode.HTML
                 )
-                await query.answer("ℹ️ 任务已被删除或不存在")
+                # await query.answer("ℹ️ 任务已被删除或不存在") # 移除冗余调用
                 # 任务不存在，也尝试取消监控（以防万一）
                 try:
                     task_monitor = get_task_monitor()
@@ -192,7 +192,8 @@ async def _handle_remove_callback(query, gid, context: ContextTypes.DEFAULT_TYPE
                 except Exception as monitor_err:
                     logger.error(f"Failed to unregister non-existent task {gid} from TaskMonitor: {monitor_err}", exc_info=True)
             else:
-                await query.answer("❌ 删除任务失败", show_alert=True)
+                # await query.answer("❌ 删除任务失败", show_alert=True) # 移除冗余调用
+                await query.edit_message_text(f"❌ 删除任务 <code>{gid}</code> 失败。", parse_mode=ParseMode.HTML)
 
     except Aria2TaskNotFoundError: # 这个异常理论上不应该在这里触发
         await query.answer("❓ 任务不存在或已完成", show_alert=True)
