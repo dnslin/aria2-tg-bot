@@ -190,10 +190,14 @@ async def main():
         if scheduler and scheduler.running:
             logger.info("正在关闭调度器...")
             try:
+                logger.info("准备关闭调度器 (wait=False)...")
                 scheduler.shutdown(wait=False)
-                logger.info("调度器已关闭")
+                logger.info("调度器 shutdown() 调用完成")
             except Exception as e:
                 logger.error(f"关闭调度器时出错: {e}", exc_info=True)
+            finally:
+                 # 尝试记录调度器关闭后的状态或线程信息
+                 logger.info(f"调度器关闭后状态: running={scheduler.running if scheduler else 'N/A'}")
 
         # 关闭历史数据库连接
         if history_manager:
@@ -215,6 +219,14 @@ async def main():
             except Exception as e:
                  logger.error(f"等待 Bot 任务取消时出错: {e}", exc_info=True)
 
+        logger.info("即将完成程序关闭...")
+        # 尝试打印活动线程
+        try:
+            import threading
+            active_threads = threading.enumerate()
+            logger.info(f"程序关闭前活动线程 ({len(active_threads)}): {[t.name for t in active_threads]}")
+        except Exception as e:
+            logger.warning(f"获取活动线程列表时出错: {e}")
         logger.info("程序关闭完成")
 
 
