@@ -134,10 +134,11 @@ class Aria2Client:
             download = await loop.run_in_executor(None, lambda: self.api.get_download(gid))
             
             # 将 Download 对象转换为字典
+            # 初始化 info 字典，不包含 files
             info = {
                 'gid': download.gid,
                 'status': download.status,
-                'name': download.name,
+                'name': download.name, # 注意：任务本身的 name 可能也需要健壮性处理，但错误是 files 里的
                 'total_length': download.total_length,
                 'completed_length': download.completed_length,
                 'download_speed': download.download_speed,
@@ -146,7 +147,6 @@ class Aria2Client:
                 'progress': download.progress * 100,  # 转换为百分比
                 'error_code': download.error_code,
                 'error_message': download.error_message,
-                'files': [{'path': f.path, 'name': f.name} for f in download.files],
                 'dir': download.dir,
                 'is_active': download.is_active,
                 'is_complete': download.is_complete,
@@ -155,6 +155,26 @@ class Aria2Client:
                 'is_waiting': download.is_waiting
                 # 'created_time' 属性不存在
             }
+
+            # 处理 files 列表
+            files_info = []
+            if hasattr(download, 'files') and download.files: # 确保 files 属性存在且不为空
+                for f in download.files:
+                    try:
+                        # 记录文件对象的属性字典，更全面地了解对象结构
+                        logger.debug(f"Processing file object attributes: {vars(f)}")
+                        file_path = getattr(f, 'path', 'N/A') # 安全获取 path
+                        file_name = getattr(f, 'name', 'N/A') # 安全获取 name
+                        files_info.append({'path': file_path, 'name': file_name})
+                    except Exception as file_err:
+                        # 记录处理单个文件对象时可能发生的任何错误
+                        logger.error(f"Error processing file object: {f}. Error: {file_err}", exc_info=True)
+                        # 即使单个文件处理出错，也尝试添加占位符信息
+                        files_info.append({'path': 'Error Processing', 'name': 'Error Processing'})
+            else:
+                 logger.debug(f"Task {gid} has no 'files' attribute or it is empty.")
+            # 将处理后的 files_info 添加到 info 字典
+            info['files'] = files_info
             
             # 计算预计剩余时间（ETA）
             if download.download_speed > 0 and not download.is_complete:
