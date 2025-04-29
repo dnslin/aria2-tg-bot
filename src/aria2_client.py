@@ -449,7 +449,7 @@ class Aria2Client:
             loop = asyncio.get_running_loop()
             
             # 获取全局统计信息
-            stats = await loop.run_in_executor(None, self.api.get_global_stat)
+            stats = await loop.run_in_executor(None, self.api.client.get_global_stat)
             
             # 获取不同状态的下载任务数量
             active_downloads = await loop.run_in_executor(None, lambda: len(self.api.get_active_downloads()))
