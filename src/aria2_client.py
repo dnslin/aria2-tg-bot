@@ -466,20 +466,20 @@ class Aria2Client:
             stats = await loop.run_in_executor(None, self.api.client.get_global_stat)
             
             # 直接使用 stats 中的数据
-            active_downloads_count = int(stats.num_active)
-            waiting_downloads_count = int(stats.num_waiting)
-            stopped_downloads_count = int(stats.num_stopped)
+            active_downloads_count = int(stats['numActive'])
+            waiting_downloads_count = int(stats['numWaiting'])
+            stopped_downloads_count = int(stats['numStopped'])
 
             return {
-                'download_speed': int(stats.download_speed),  # bytes/sec
-                'upload_speed': int(stats.upload_speed),      # bytes/sec
+                'download_speed': int(stats['downloadSpeed']),  # bytes/sec
+                'upload_speed': int(stats['uploadSpeed']),      # bytes/sec
                 'active_downloads': active_downloads_count,
                 'waiting_downloads': waiting_downloads_count,
                 'stopped_downloads': stopped_downloads_count,
                 'total_downloads': active_downloads_count + waiting_downloads_count + stopped_downloads_count,
-                'num_active': active_downloads_count,          # 活动下载数
-                'num_waiting': waiting_downloads_count,        # 等待下载数
-                'num_stopped': stopped_downloads_count,        # 已停止下载数（包括完成和错误的）
+                'num_active': int(stats['numActive']),          # 活动下载数
+                'num_waiting': int(stats['numWaiting']),        # 等待下载数
+                'num_stopped': int(stats['numStopped']),        # 已停止下载数（包括完成和错误的）
                 # 'total_size' 属性不存在
                 # 'server_time' 属性不存在
                 'version': await loop.run_in_executor(None, lambda: self.api.client.get_version())
