@@ -41,18 +41,18 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     help_text = (
         "❓ <b>Aria2 Telegram Bot 帮助</b>\n\n"
         "<b>基本命令：</b>\n"
-        "/add <url_or_magnet> - ➕ 添加下载任务\n"
+        "/add <code>url_or_magnet</code> - ➕ 添加下载任务\n"
         "/status - 显示所有任务的状态摘要\n"
-        "/status <gid> - 显示指定任务的详细状态\n"
-        "/pause <gid> - 暂停指定任务\n"
-        "/unpause <gid> - 恢复指定任务\n"
-        "/remove <gid> - 删除指定任务\n"
+        "/status <code>gid</code> - 显示指定任务的详细状态\n"
+        "/pause <code>gid</code> - 暂停指定任务\n"
+        "/unpause <code>gid</code> - 恢复指定任务\n"
+        "/remove <code>gid</code> - 删除指定任务\n"
         "/pauseall - 暂停所有任务\n"
         "/unpauseall - 恢复所有任务\n"
         "/history - 浏览下载历史记录\n"
         "/clearhistory - 清空所有历史记录\n"
         "/globalstatus - 显示 Aria2 全局状态\n"
-        "/searchhistory <keyword> - 搜索下载历史\n"
+        "/searchhistory <code>keyword</code> - 搜索下载历史\n"
         "/help - 显示此帮助信息\n\n"
         "<b>提示：</b>\n"
         "- 在查看单个任务状态时，可以使用内联按钮进行操作\n"
@@ -252,7 +252,9 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
             # 保存分页状态 (需要调整为使用 context.user_data 或 chat_data 或 state 模块)
             user_id = update.effective_user.id
-            states["status_pages"][user_id] = {
+            logger.debug(f"cmd_status: Accessing states for user {user_id}. Current states: {{states}}") # Added for debugging KeyError
+            states.setdefault('status_pages', {}) # 确保 'status_pages' 键存在
+            states.setdefault('status_pages', {})[user_id] = {
                 "page": current_page,
                 "total": total_pages,
                 "tasks": all_tasks # 保存完整列表以供翻页
@@ -659,7 +661,7 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         # 保存分页状态 (需要调整)
         user_id = update.effective_user.id
-        states["history_pages"][user_id] = {
+        states.setdefault('history_pages', {})[user_id] = {
             "page": page,
             "total": total_pages
         }
@@ -785,7 +787,7 @@ async def cmd_searchhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         # 保存分页状态 (需要调整)
         user_id = update.effective_user.id
-        states["search_pages"][user_id] = {
+        states.setdefault('search_pages', {})[user_id] = {
             "page": page,
             "total": total_pages,
             "keyword": keyword
