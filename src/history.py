@@ -9,6 +9,7 @@ import json
 import time
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+from pathlib import Path # Added import
 
 from .config import get_config
 
@@ -115,9 +116,20 @@ class HistoryManager:
             logger.error(f"初始化数据库失败: {e}")
             raise DatabaseError(f"初始化数据库失败: {e}")
     
-    async def add_history(self, 
-                         gid: str, 
-                         name: str, 
+    def _convert_paths_to_strings(self, data: Any) -> Any:
+        """递归地将数据结构中的 Path 对象转换为字符串"""
+        if isinstance(data, list):
+            return [self._convert_paths_to_strings(item) for item in data]
+        elif isinstance(data, dict):
+            return {key: self._convert_paths_to_strings(value) for key, value in data.items()}
+        elif isinstance(data, Path):
+            return str(data)
+        else:
+            return data
+
+    async def add_history(self,
+                         gid: str,
+                         name: str,
                          status: str, 
                          size: Optional[int] = None,
                          error_code: Optional[int] = None,
@@ -152,7 +164,14 @@ class HistoryManager:
             
         try:
             conn = await self._get_connection()
-            
+
+            # Convert Path objects to strings before serialization
+            files_serializable = self._convert_paths_to_strings(files) if files else None
+            extra_serializable = self._convert_paths_to_strings(extra) if extra else None
+
+# DEBUG: Log the data before JSON serialization
+            logger.debug(f"Before UPDATE/INSERT - files_serializable type: {type(files_serializable)}, content: {files_serializable}")
+            logger.debug(f"Before UPDATE/INSERT - extra_serializable type: {type(extra_serializable)}, content: {extra_serializable}")
             # 尝试更新现有记录（如果 GID 已存在）
             cursor = await conn.execute("""
                 UPDATE download_history
@@ -162,8 +181,8 @@ class HistoryManager:
                 WHERE gid = ?
             """, (
                 name, status, timestamp, size,
-                error_code, error_message, json.dumps(files) if files else None,
-                1 if notified else 0, json.dumps(extra) if extra else None,
+                error_code, error_message, json.dumps(files_serializable) if files_serializable else None,
+                1 if notified else 0, json.dumps(extra_serializable) if extra_serializable else None,
                 gid
             ))
             
@@ -175,8 +194,8 @@ class HistoryManager:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     gid, name, status, timestamp, size,
-                    error_code, error_message, json.dumps(files) if files else None,
-                    1 if notified else 0, json.dumps(extra) if extra else None
+                    error_code, error_message, json.dumps(files_serializable) if files_serializable else None,
+                    1 if notified else 0, json.dumps(extra_serializable) if extra_serializable else None
                 ))
             
             await conn.commit()
